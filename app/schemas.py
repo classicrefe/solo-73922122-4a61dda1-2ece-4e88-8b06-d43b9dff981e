@@ -112,6 +112,9 @@ class ConflictError(BaseModel):
     car_no: Optional[str] = None
     position: Optional[str] = None
     part_no: Optional[str] = None
+    generation: Optional[int] = Field(default=None, description="相关代次：1=旧件，2=新件")
+    start_order: Optional[str] = None
+    end_order: Optional[str] = None
 
 
 class ConflictReport(BaseModel):
@@ -126,9 +129,52 @@ class BatchResult(BaseModel):
     effective_orders: int = Field(description="提交后库内有效工单总数")
 
 
+class GenerationRequest(BaseModel):
+    """分代登记：为同一铭牌号的两件实物登记分界工单。"""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "part_no": "BRG-0001",
+                    "old_end_order": "WO-2003",
+                    "new_start_order": "WO-2004",
+                }
+            ]
+        }
+    )
+
+    part_no: str = Field(min_length=1, max_length=64, description="铭牌号（工单中沿用的原件号）")
+    old_end_order: str = Field(min_length=1, max_length=64, description="旧件（一代）最后一次卸车的工单号")
+    new_start_order: str = Field(min_length=1, max_length=64, description="新件（二代）第一次装车的工单号")
+
+    @field_validator("part_no", "old_end_order", "new_start_order", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _two_distinct_orders(self):
+        if self.old_end_order == self.new_start_order:
+            raise ValueError("旧件末卸工单与新件首装工单须是两张工单（允许同刻，但不能同号）")
+        return self
+
+
+class GenerationInfo(BaseModel):
+    """一条分代登记及其分界信息。"""
+
+    part_no: str
+    old_end_order: str = Field(description="旧件（一代）最后一次卸车工单号")
+    old_end_ts: str
+    new_start_order: str = Field(description="新件（二代）第一次装车工单号")
+    new_start_ts: str
+    created_at: str
+
+
 class FinishedSegment(BaseModel):
     car_no: str
     position: str
+    generation: Optional[int] = Field(default=None, description="代次：1=旧件，2=新件；未分代件号为 null")
     start_order: str
     start_ts: str
     start_mileage: int
@@ -143,10 +189,15 @@ class ActiveSegment(BaseModel):
 
     car_no: str
     position: str
+    generation: Optional[int] = Field(default=None, description="代次：1=旧件，2=新件；未分代件号为 null")
 
 
 class PartHistory(BaseModel):
     part_no: str
+    generation: Optional[int] = Field(
+        default=None,
+        description="本次查询的代次；未分代件号或未指定时为 null",
+    )
     total_mileage: int = Field(description="已结束装车段的累计里程（不含在役段）")
     finished_segments: list[FinishedSegment]
     active: Optional[ActiveSegment] = Field(description="在役段位置；不在役为 null")
@@ -155,6 +206,7 @@ class PartHistory(BaseModel):
 class PositionState(BaseModel):
     position: str
     part_no: str
+    generation: Optional[int] = Field(default=None, description="该件号的代次；未分代为 null")
     since_order: str
     since_ts: str
     since_mileage: int

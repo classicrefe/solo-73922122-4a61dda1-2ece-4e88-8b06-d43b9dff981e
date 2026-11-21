@@ -35,10 +35,22 @@ CREATE TABLE IF NOT EXISTS segments (
     start_mileage INTEGER NOT NULL,
     end_order     TEXT,               -- NULL 表示在役段
     end_ts        TEXT,
-    end_mileage   INTEGER
+    end_mileage   INTEGER,
+    generation    INTEGER             -- NULL=未分代；1=旧件一代；2=新件二代
 );
 CREATE INDEX IF NOT EXISTS idx_segments_part ON segments(part_no);
 CREATE INDEX IF NOT EXISTS idx_segments_car ON segments(car_no);
+
+-- 分代登记：同一铭牌号对应两件实物时，登记旧件最后一次卸车工单
+-- 与新件第一次装车工单；每个件号至多一条，登记后不可改写（换一对即冲突）
+CREATE TABLE IF NOT EXISTS part_generations (
+    part_no         TEXT PRIMARY KEY,
+    old_end_order   TEXT NOT NULL,    -- 旧件最后一次卸车工单号
+    new_start_order TEXT NOT NULL,    -- 新件第一次装车工单号
+    old_end_ts      TEXT NOT NULL,    -- 登记时刻快照，便于查询展示
+    new_start_ts    TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
 """
 
 
@@ -62,3 +74,7 @@ def connect(path: str | None = None) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # 轻量迁移：旧库的 segments 表没有 generation 列
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(segments)")}
+    if "generation" not in cols:
+        conn.execute("ALTER TABLE segments ADD COLUMN generation INTEGER")

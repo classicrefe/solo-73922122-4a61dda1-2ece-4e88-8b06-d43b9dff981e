@@ -44,7 +44,7 @@ def test_install_then_close_segment(client):
     assert sorted(r.json()["applied"]) == ["WO-1", "WO-2"]
 
     h = client.get("/parts/P1").json()
-    assert h["active"] == {"car_no": "C1", "position": "A1"}
+    assert h["active"] == {"car_no": "C1", "position": "A1", "generation": None}
     assert h["finished_segments"] == [] and h["total_mileage"] == 0
 
     r = post(client, wo("WO-3", 1, T2, "C1", 1600, [("A1", "P1", None)]))
@@ -59,7 +59,9 @@ def test_install_then_close_segment(client):
 def test_active_segment_reports_only_position(client):
     post(client, wo("WO-1", 1, T1, "C1", 1000, [("A1", None, "P1")]))
     h = client.get("/parts/P1").json()
-    assert set(h["active"].keys()) == {"car_no", "position"}
+    # 在役段只报位置（外加未分代件号恒为 null 的代次标记），不含里程
+    assert set(h["active"].keys()) == {"car_no", "position", "generation"}
+    assert h["active"]["generation"] is None
 
 
 def test_swap_between_cars_same_ts_is_atomic(client):
@@ -71,10 +73,10 @@ def test_swap_between_cars_same_ts_is_atomic(client):
     assert r.status_code == 201, r.json()
 
     h1 = client.get("/parts/P1").json()
-    assert h1["active"] == {"car_no": "C2", "position": "B1"}
+    assert h1["active"] == {"car_no": "C2", "position": "B1", "generation": None}
     assert h1["finished_segments"][0]["mileage_delta"] == 500
     h2 = client.get("/parts/P2").json()
-    assert h2["active"] == {"car_no": "C1", "position": "A1"}
+    assert h2["active"] == {"car_no": "C1", "position": "A1", "generation": None}
     assert h2["finished_segments"][0]["mileage_delta"] == 600
 
 
@@ -85,7 +87,7 @@ def test_move_part_to_other_car_same_ts(client):
              wo("WO-3", 1, T2, "C2", 8000, [("B2", None, "P1")]))
     assert r.status_code == 201, r.json()
     h = client.get("/parts/P1").json()
-    assert h["active"] == {"car_no": "C2", "position": "B2"}
+    assert h["active"] == {"car_no": "C2", "position": "B2", "generation": None}
     assert h["total_mileage"] == 400
 
     # C2 跑到 8600 时换下：累计 = 400 + 600
@@ -108,7 +110,8 @@ def test_off_part_mismatch_rejected(client):
     assert r.status_code == 409
     assert r.json()["detail"]["errors"][0]["type"] == "OFF_PART_MISMATCH"
     # 状态未被污染
-    assert client.get("/parts/P1").json()["active"] == {"car_no": "C1", "position": "A1"}
+    assert client.get("/parts/P1").json()["active"] == {
+        "car_no": "C1", "position": "A1", "generation": None}
     assert len(client.get("/orders").json()) == 1
 
 
@@ -223,7 +226,8 @@ def test_backfill_inserts_history(client):
     r = post(client, wo("WO-2", 1, T2, "C1", 1400, [("A2", None, "P2")]))
     assert r.status_code == 201, r.json()
     assert client.get("/parts/P1").json()["total_mileage"] == 1000
-    assert client.get("/parts/P2").json()["active"] == {"car_no": "C1", "position": "A2"}
+    assert client.get("/parts/P2").json()["active"] == {
+        "car_no": "C1", "position": "A2", "generation": None}
 
 
 def test_backfill_invalidating_later_order_is_rejected(client):
@@ -274,7 +278,8 @@ def test_interleaved_submissions_are_serialized(client):
     assert len(client.get("/orders").json()) == 12
     for i in range(12):
         h = client.get(f"/parts/P-T{i}").json()
-        assert h["active"] == {"car_no": f"CAR-{i}", "position": f"A{i}"}
+        assert h["active"] == {"car_no": f"CAR-{i}", "position": f"A{i}",
+                               "generation": None}
 
 
 def test_reader_sees_only_committed_state(client, tmp_path):
