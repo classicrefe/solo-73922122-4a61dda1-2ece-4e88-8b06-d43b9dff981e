@@ -1,0 +1,16 @@
+name: bearing-ledger
+
+services:
+  api:
+    build: .
+    image: bearing-ledger:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DB_PATH: /data/app.db
+    volumes:
+      - bearing-data:/data
+    restart: unless-stopped
+
+volumes:
+  bearing-data:
